@@ -1,0 +1,48 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE hibernate-configuration PUBLIC
+    "-//Hibernate/Hibernate Configuration DTD//EN"
+    "http://www.hibernate.org/dtd/hibernate-configuration-3.0.dtd">
+<hibernate-configuration>
+  <session-factory>
+      <property name="hibernate.connection.driver_class">org.h2.Driver</property>
+      <property name="hibernate.connection.password">sa</property>
+      <property name="hibernate.connection.url">jdbc:h2:~/cableway;MULTI_THREADED=1</property>
+      <property name="hibernate.connection.username">sa</property>
+
+      <property name="show_sql">true</property>
+      <property name="format_sql">true</property>
+
+      <!-- JDBC connection pool (use the built-in) -->
+      <!--<property name="connection.pool_size">1</property>-->
+
+      <!-- Hibernate c3p0 connection pool -->
+<!--
+      <property name="hibernate.c3p0.min_size">5</property>
+      <property name="hibernate.c3p0.max_size">20</property>
+      <property name="hibernate.c3p0.timeout">300</property>
+      <property name="hibernate.c3p0.max_statements">50</property>
+      <property name="hibernate.c3p0.idle_test_period">3000</property>
+-->
+      <property name="hibernate.current_session_context_class">thread</property>
+
+      <property name="hibernate.dialect">org.hibernate.dialect.H2Dialect</property>
+
+      <!-- Only for testing -->
+      <!--<property name="hibernate.hbm2ddl.auto">create-drop</property>-->
+
+      <!-- For first time database creation -->
+      <!--<property name="hibernate.hbm2ddl.auto">create</property>-->
+
+      <property name="hibernate.hbm2ddl.auto">update</property>
+
+      <!-- For daily use -->
+      <!--<property name="hibernate.hbm2ddl.auto">validate</property>-->
+
+      <mapping class="com.itstep.cableway.db.entities.Customer"/>
+      <mapping class="com.itstep.cableway.db.entities.Subscription"/>
+      <mapping class="com.itstep.cableway.db.entities.Definitions"/>
+      <mapping class="com.itstep.cableway.db.entities.CablewayData"/>
+      <mapping class="com.itstep.cableway.db.entities.User"/>
+
+  </session-factory>
+</hibernate-configuration>

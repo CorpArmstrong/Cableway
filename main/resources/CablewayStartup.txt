@@ -1,0 +1,7 @@
+
+1) Get system time.
+2) Initialize database.
+3) Check, initialize and open ports.
+4) Run each cableway in thread and run main loop.
+5) Run "Authentication window".
+6) If authorization success, run "Main window".
