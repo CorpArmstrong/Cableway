@@ -8,6 +8,10 @@
     <artifactId>main</artifactId>
     <version>1.0</version>
 
+    <build>
+        <defaultGoal>install</defaultGoal>
+    </build>
+
     <properties>
         <java.version>1.7</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
