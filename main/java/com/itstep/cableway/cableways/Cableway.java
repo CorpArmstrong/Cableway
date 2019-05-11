@@ -162,6 +162,9 @@ public class Cableway implements Runnable {
         flagSubscriptionWorkCableway = false;
         flagDelayUseCard = false;
 
+        tempCustomer = new Customer();
+        tempCustomer.setCardKey(EMPTY_CARD_KEY);
+
         timerManager.startTimerOneSecondMain(this);
     }
 
@@ -221,25 +224,12 @@ public class Cableway implements Runnable {
     }
 
     private boolean isFirstTimeCustomer() {
-        boolean result = true;
-
-        if (customer != null) {
-            if (tempCustomer.getCardKey() == customer.getCardKey()) {
-                result = false;
-            }
-        }
-
-        return result;
+        return !(customer != null && tempCustomer.getCardKey() == customer.getCardKey());
     }
 
     public synchronized boolean checkSubscriptionDateBounds(Subscription s) {
-        boolean result = false;
-
-        if (DateController.currentDay >= s.getDayOfWeekStartSubscription() && DateController.currentDay <= s.getDayOfWeekEndSubscription()) {
-            result = checkSubscriptionTimeBounds(s);
-        }
-
-        return result;
+        return (DateController.currentDay >= s.getDayOfWeekStartSubscription() && DateController.currentDay <= s.getDayOfWeekEndSubscription()) &&
+                checkSubscriptionTimeBounds(s);
     }
 
     private synchronized boolean checkSubscriptionTimeBounds(Subscription s) {
@@ -247,30 +237,15 @@ public class Cableway implements Runnable {
                 DateController.timeHours <= s.getTimeEndSubscription();
     }
 
-    private void checkTimeLeftOnSubscriptionCurrentDate(Customer customer) {
-        if (customer.getTimeLeftOnSubscriptionCurrentDate() >= TIME_TO_PLAY) {
-
+    private void rideOneTime(Customer customer, boolean canRide, boolean rideBySubscription) {
+        if (canRide) {
             flagDelayUseCard = true;
             timerManager.startTimerDelayUseCard_RFIDMain(this);
             timerManager.startTimerDelayCablewayMain(this, customer, customH2TableAdapter, cablewayData);
 
-            flagSubscriptionWorkCableway = true;
-
-            turnOnSiren();
-
-            timerManager.startTimer1TurnOffSirenMain(this);
-
-            timeToPlayVar = TIME_TO_PLAY;
-            timeCableway = TIME_TO_PLAY * 60;
-        }
-    }
-
-    private void checkPayedTimeToOneEquivalent(Customer customer) {
-        if (customer.getPayedTime() >= TIME_TO_PLAY) {
-
-            flagDelayUseCard = true;
-            timerManager.startTimerDelayUseCard_RFIDMain(this);
-            timerManager.startTimerDelayCablewayMain(this, customer, customH2TableAdapter, cablewayData);
+            if (rideBySubscription) {
+                flagSubscriptionWorkCableway = true;
+            }
 
             turnOnSiren();
 
@@ -283,8 +258,6 @@ public class Cableway implements Runnable {
 
     // Оплата двойного проката, установка флага задержки на использование ключа.
     private void payDoubleTimeRide() {
-
-        // Double check.
 
         flagDelayUseCard = true;
         timerManager.startTimerDelayUseCard_RFIDMain(this);
@@ -345,6 +318,30 @@ public class Cableway implements Runnable {
         }
     }
 
+    // Есть ли ответ от RFIDReader ? && Есть ли запрет на повторное поднесение (3 сек) ? && Есть ли задержка на использование ?
+    private boolean isPendingWork() {
+        return !isWorking && isRFIDResponse() && !flagDelayUseCard && isPreventUse();
+    }
+
+    private void rideDoubleTime(int timeEquivalent)
+    {
+        if (customer.getPayedTime() >= timeEquivalent * TIME_TO_PLAY)
+        {
+            payDoubleTimeRide();
+
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                log.error(e.getMessage());
+            }
+        }
+    }
+
+    private boolean isKeyWasSet(Customer tempCustomer)
+    {
+        return isFirstTimeCustomer() && customH2TableAdapter.getCustomerHibernateDao().findCustomerByCardKey(tempCustomer.getCardKey());
+    }
+
     @Override
     public void run() {
         //JOptionPane.showMessageDialog(null, "Cableway start success.", "Предупреждение", JOptionPane.INFORMATION_MESSAGE);
@@ -352,95 +349,67 @@ public class Cableway implements Runnable {
 
         sendEmptyEvent();
 
-        while (!done) {
+        while (!done)
+        {
+            if (isPendingWork())
+            {
+                tempCustomer.setCardKey(cardKey);
 
-            //System.out.println("isWorking: " + isWorking);
+                if (!isKeyWasSet(tempCustomer))
+                {
+                    tempCustomer.setCardKey(EMPTY_CARD_KEY);
+                    customer = customH2TableAdapter.getCustomerHibernateDao().getCustomerByCardKey(tempCustomer.getCardKey());
 
-            // Есть ли ответ от RFIDReader ? && Есть ли запрет на повторное поднесение (3 сек) ? && Есть ли задержка на использование ?
-            if (isRFIDResponse() && !flagDelayUseCard && isPreventUse()) {
-                if (!isWorking) {
+                    // Проверить есть ли у клиента абонемент ?
+                    if (customer.getSubscriptionType() != 0)
+                    {
+                        // Получить абонемент относящийся к данному клиенту
+                        subscription = customH2TableAdapter.getSubscriptionHibernateDao().findById((long) customer.getSubscriptionType());
 
-                    // Set up template customer
-                    tempCustomer = new Customer();
-                    tempCustomer.setCardKey(cardKey);
+                        // Double check: Sunday = 0;
+                        DateController.getSystemTime();
 
-                    // Проверить был ли ключ уже назначен ?
-                    if (isFirstTimeCustomer()) {
-                        // Вероятно первое поднесение ключа?
+                        // Проверка границ абонемента.
+                        if (checkSubscriptionDateBounds(subscription))
+                        {
+                            rideOneTime(customer, customer.getTimeLeftOnSubscriptionCurrentDate() >= TIME_TO_PLAY, true);
+                        }
 
-                        // Человек найден в базе данных по ключу ?
-                        if (customH2TableAdapter.getCustomerHibernateDao().findCustomerByCardKey(tempCustomer.getCardKey())) {
-
-                            // Установить клиента.
-                            customer = customH2TableAdapter.getCustomerHibernateDao().getCustomerByCardKey(tempCustomer.getCardKey());
-                            tempCustomer = null;
-
-                            // Проверить есть ли у клиента абонемент ?
-                            if (customer.getSubscriptionType() != 0) {
-                                // Получить абонемент относящийся к данному клиенту
-                                subscription = customH2TableAdapter.getSubscriptionHibernateDao().findById((long) customer.getSubscriptionType());
-
-                                // Double check: Sunday = 0;
-                                DateController.getSystemTime();
-
-                                // Проверка границ абонемента.
-                                if (checkSubscriptionDateBounds(subscription)) {
-                                    checkTimeLeftOnSubscriptionCurrentDate(customer);
-                                }
-
-                                // Проверить что клиент не будет кататься по абонементу ?
-                                if (!flagSubscriptionWorkCableway) {
-                                    checkPayedTimeToOneEquivalent(customer);
-                                }
-                            } else {
-                                // Нет абонемента!
-                                checkPayedTimeToOneEquivalent(customer);
+                        // Проверить что клиент не будет кататься по абонементу ?
+                        if (!flagSubscriptionWorkCableway)
+                        {
+                            rideOneTime(customer, customer.getPayedTime() >= TIME_TO_PLAY, false);
+                        }
+                    }
+                    else
+                    {
+                        // Нет абонемента!
+                        rideOneTime(customer, customer.getPayedTime() >= TIME_TO_PLAY, false);
+                    }
+                }
+                else
+                {
+                    // Проверить что на устройстве поднесен тот же ключ (в течении 3 сек).
+                    if (tempCustomer.getCardKey() == customer.getCardKey())
+                    {
+                        // Проверить что клиент уже будет кататься по абонементу.
+                        if (flagSubscriptionWorkCableway)
+                        {
+                            // Проверить что оставшееся время по абонементу на текущую дату >= двойной единицы проката.
+                            if (customer.getTimeLeftOnSubscriptionCurrentDate() >= (2 * TIME_TO_PLAY))
+                            {
+                                payDoubleTimeRide();
+                            }
+                            else
+                            {
+                                rideDoubleTime(1);
                             }
                         }
-                    } else {
-                        // Ключ уже был назначен.
-                        // Как минимум повторное поднесение ключа.
-
-                        // Проверить что на устройстве поднесен тот же ключ (в течении 3 сек).
-                        if (tempCustomer.getCardKey() == customer.getCardKey()) {
-                            // Проверить что клиент уже будет кататься по абонементу.
-                            if (flagSubscriptionWorkCableway) {
-                                // Проверить что оставшееся время по абонементу на текущую дату >= двойной единицы проката.
-                                if (customer.getTimeLeftOnSubscriptionCurrentDate() >= (2 * TIME_TO_PLAY)) {
-                                    // Оплата двойного проката.
-                                    // Установить флаг задержки на использование ключа.
-                                    payDoubleTimeRide();
-                                } else {
-                                    // Проверить что оплаченное время >= минимальной единицы проката.
-                                    if (customer.getPayedTime() >= TIME_TO_PLAY) {
-                                        // Оплата двойного проката.
-                                        // Установить флаг задержки на использование ключа.
-                                        payDoubleTimeRide();
-
-                                        try {
-                                            Thread.sleep(100);
-                                        } catch (InterruptedException e) {
-                                            log.error(e.getMessage());
-                                        }
-                                    }
-                                }
-                            } else {
-                                // Не намерен кататься по абонементу.
-                                // Повторное поднесение.
-
-                                // Проверить что оплаченное время >= двойной единицы проката.
-                                if (customer.getPayedTime() >= (2 * TIME_TO_PLAY)) {
-                                    // Оплата двойного проката.
-                                    // Установить флаг задержки на использование ключа.
-                                    payDoubleTimeRide();
-
-                                    try {
-                                        Thread.sleep(100);
-                                    } catch (InterruptedException e) {
-                                        log.error(e.getMessage());
-                                    }
-                                }
-                            }
+                        else
+                        {
+                            // Не намерен кататься по абонементу.
+                            // Повторное поднесение.
+                            rideDoubleTime(2);
                         }
                     }
                 }
